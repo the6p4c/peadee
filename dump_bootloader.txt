@@ -1,0 +1,2 @@
+d 08000000 11264 bootloader.bin # 0x2c00 hex = 11264 dec
+exit
