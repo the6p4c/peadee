@@ -1,4 +1,5 @@
 Payload type field is more like a command, dictates how the payload is to be interpreted
+```
 	0x01 STATUS_ERROR
 		Device -> host (IN)
 	0x02 STATUS_SUCCESS
@@ -35,15 +36,19 @@ Payload type field is more like a command, dictates how the payload is to be int
 	0x17 RESET
 		Host -> device (OUT)
 		Returns a STATUS_SUCCESS before resetting
+```
 
 Init sequence
+```
 	STATUS_REQUEST -> device
 	host <- STATUS_SUCCESS
 	READ_SMALL REQUEST -> device
 		Reads 15 bytes from 0800_3800
 	host <- READ_SMALL REPLY
+```
 
 Flashing sequence
+```
 	STATUS_REQUEST -> device
 	host <- STATUS_SUCCESS
 	FLASH_UNLOCK -> device
@@ -70,3 +75,4 @@ Flashing sequence
 
 	RESET -> device
 	host <- STATUS_SUCCESS
+```
