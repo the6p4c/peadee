@@ -1,0 +1,3 @@
+[submodule "test_fw/libopencm3"]
+	path = test_fw/libopencm3
+	url = https://github.com/libopencm3/libopencm3.git
