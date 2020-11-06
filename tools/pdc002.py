@@ -148,7 +148,7 @@ class PDC002Bootloader:
 
         p = self.read_packet()
         if p.payload_type != self.READ_SMALL:
-            raise RuntimeError('did not get READ_SMALL in reply to READ_SMALL')
+            raise RuntimeError(f'did not get READ_SMALL in reply to READ_SMALL (got {p.payload_type:02x})')
 
         return p.payload
 
@@ -165,9 +165,14 @@ class PDC002Bootloader:
 
         num_replies = math.ceil(count / 0x28)
         for i in range(num_replies):
-            p = self.read_packet()
-            if p.payload_type != self.READ_BIG:
-                raise RuntimeError('did not get READ_BIG in reply to READ_BIG')
+            while True:
+                p = self.read_packet()
+                if p.payload_type == self.STATUS_SUCCESS:
+                    # TODO: HACK HACK HACK
+                    continue
+                if p.payload_type != self.READ_BIG:
+                    raise RuntimeError(f'did not get READ_BIG in reply to READ_BIG (got {p.payload_type:02x})')
+                break
 
             data.extend(p.payload)
 
