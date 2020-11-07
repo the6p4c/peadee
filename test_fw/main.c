@@ -2,8 +2,11 @@
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/cm3/scb.h>
 #include <libopencm3/cm3/systick.h>
-#include <libopencm3/stm32/gpio.h>
-#include <libopencm3/stm32/rcc.h>
+#include <libopencm3/gd32/gpio.h>
+#include <libopencm3/gd32/rcc.h>
+#include <libopencm3/gd32/flash.h>
+
+volatile uint32_t time = 0;
 
 uint8_t get_signal() {
 	return gpio_get(GPIOA, GPIO5) == GPIO5 ? 1 : 0;
@@ -27,12 +30,41 @@ void sys_tick_handler() {
 	}
 
 	prev_signal = curr_signal;
+
+	time++;
 }
 
-void delay() {
-	for (int i = 0; i < 2500000; ++i) {
-		__asm__ volatile("nop");
-	}
+#define DELAY (1000)
+void delay(uint32_t duration) {
+	uint32_t start = time;
+	while (time - start <= duration);
+}
+
+void clock_setup() {
+	rcc_osc_on(RCC_HSI);
+	rcc_wait_for_osc_ready(RCC_HSI);
+
+	rcc_set_sysclk_source(RCC_CFGR_SW_SYSCLKSEL_HSICLK);
+
+	rcc_set_hpre(RCC_CFGR_HPRE_SYSCLK_NODIV);
+	rcc_set_adcpre(RCC_CFGR_ADCPRE_PCLK2_DIV8);
+	rcc_set_ppre1(RCC_CFGR_PPRE1_HCLK_DIV2);
+	rcc_set_ppre2(RCC_CFGR_PPRE2_HCLK_NODIV);
+
+	flash_set_ws(FLASH_ACR_LATENCY_2WS);
+
+	rcc_set_pll_multiplication_factor(RCC_CFGR_PLLMUL_PLL_CLK_MUL16);
+
+	rcc_set_pll_source(RCC_CFGR_PLLSRC_HSI_CLK_DIV2);
+
+	rcc_osc_on(RCC_PLL);
+	rcc_wait_for_osc_ready(RCC_PLL);
+
+	rcc_set_sysclk_source(RCC_CFGR_SW_SYSCLKSEL_PLLCLK);
+
+	rcc_ahb_frequency = 64000000;
+	rcc_apb1_frequency = 32000000;
+	rcc_apb2_frequency = 64000000;
 }
 
 int main() {
@@ -43,6 +75,8 @@ int main() {
 	}
 	cm_enable_interrupts();
 
+	clock_setup();
+
 	rcc_periph_clock_enable(RCC_GPIOA);
 	rcc_periph_clock_enable(RCC_GPIOB);
 
@@ -51,12 +85,12 @@ int main() {
 
 	gpio_set(GPIOB, GPIO3 | GPIO4 | GPIO5);
 
-	systick_set_clocksource(STK_CSR_CLKSOURCE_AHB);
-	systick_set_reload(4999);
+	systick_set_clocksource(STK_CSR_CLKSOURCE_AHB_DIV8);
+	systick_set_reload(7999);
 	systick_interrupt_enable();
 	systick_counter_enable();
 
-	delay();
+	delay(DELAY);
 
 	//   bbbr bbrr bbbb bbrr bbbb brbb bbbr bbbb
 	// 0b0001 0011 0000 0011 0000 0100 0001 0000
@@ -74,10 +108,10 @@ int main() {
 			gpio_clear(GPIOB, GPIO4);
 		}
 
-		delay();
+		delay(DELAY);
 		gpio_set(GPIOB, GPIO3);
 		gpio_set(GPIOB, GPIO4);
-		delay();
+		delay(DELAY);
 	}
 
 	// green - end of data
