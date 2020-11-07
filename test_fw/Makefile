@@ -18,24 +18,24 @@ CFLAGS = $(ARCH_FLAGS)
 CFLAGS += -std=c11 -g3 -O0
 CFLAGS += -I$(LIBOPENCM3_ROOT)/include
 CFLAGS += -fno-common -ffunction-sections -fdata-sections
-CFLAGS += -DSTM32F0
+CFLAGS += -DGD32F1X0
 
 LDLIBS = -Wl,--start-group -lc -lgcc -lnosys -Wl,--end-group
-LDLIBS += -lopencm3_stm32f0
+LDLIBS += -lopencm3_gd32f1x0
 
 FIRMWARE_ELF = firmware.elf
 FIRMWARE_BIN = firmware.bin
 
 all: $(FIRMWARE_ELF) $(FIRMWARE_BIN)
 
-$(FIRMWARE_ELF): main.c $(LIBOPENCM3_ROOT)/lib/libopencm3_stm32f0.a
+$(FIRMWARE_ELF): main.c $(LIBOPENCM3_ROOT)/lib/libopencm3_gd32f1x0.a
 	$(CC) $(CFLAGS) $(LDFLAGS) main.c $(LDLIBS) -o firmware.elf
 
 $(LIBOPENCM3_ROOT)/Makefile:
 	git submodule update --init
 
 $(LIBOPENCM3_ROOT)/lib/libopencm3_%.a: $(LIBOPENCM3_ROOT)/Makefile
-	$(MAKE) -C $(LIBOPENCM3_ROOT) TARGETS=stm32/f0
+	$(MAKE) -C $(LIBOPENCM3_ROOT) TARGETS=gd32/f1x0
 
 $(FIRMWARE_BIN): $(FIRMWARE_ELF)
 	$(OBJCOPY) -O binary $< $@
