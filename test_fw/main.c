@@ -5,30 +5,34 @@
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/rcc.h>
 
-volatile uint8_t ctr = 0;
-// 0bRGB
-volatile uint8_t led = 0;
+uint8_t get_signal() {
+	return gpio_get(GPIOA, GPIO5) == GPIO5 ? 1 : 0;
+}
 
 void sys_tick_handler() {
-	if ((ctr & 1) && (led & 4)) {
-		gpio_clear(GPIOB, GPIO3);
-	} else {
-		gpio_set(GPIOB, GPIO3);
+	static int transitions = 0;
+	static uint8_t prev_signal = 0xFF;
+
+	if (prev_signal == 0xFF) {
+		prev_signal = get_signal();
 	}
 
-	if ((ctr & 3) && (led & 2)) {
-		gpio_clear(GPIOB, GPIO5);
-	} else {
-		gpio_set(GPIOB, GPIO5);
+	uint8_t curr_signal = get_signal();
+	if (curr_signal != prev_signal) {
+		transitions++;
+
+		if (transitions == 5) {
+			scb_reset_system();
+		}
 	}
 
-	if (led & 1) {
-		gpio_clear(GPIOB, GPIO4);
-	} else {
-		gpio_set(GPIOB, GPIO4);
-	}
+	prev_signal = curr_signal;
+}
 
-	ctr++;
+void delay() {
+	for (int i = 0; i < 2500000; ++i) {
+		__asm__ volatile("nop");
+	}
 }
 
 int main() {
@@ -43,42 +47,43 @@ int main() {
 	rcc_periph_clock_enable(RCC_GPIOB);
 
 	gpio_mode_setup(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO5);
-	gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO3);
-	gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO4);
-	gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO5);
+	gpio_mode_setup(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO3 | GPIO4 | GPIO5);
+
+	gpio_set(GPIOB, GPIO3 | GPIO4 | GPIO5);
 
 	systick_set_clocksource(STK_CSR_CLKSOURCE_AHB);
 	systick_set_reload(4999);
 	systick_interrupt_enable();
 	systick_counter_enable();
 
-	static uint8_t LUT[] = {
-		//0b100, // red
-		//0b010, // green
-		//0b001, // blue
-		//0b110, // yellow
-		//0b011, // cyan
-		//0b101, // magenta
-		//0b111  // white
-		0b001, // blue
-		0b101, // magenta
-		0b111, // white
-		0b101, // magenta
-		0b001, // blue
-		0b000  // off
-	};
+	delay();
 
-	int lut_idx = 0;
+	//   bbbr bbrr bbbb bbrr bbbb brbb bbbr bbbb
+	// 0b0001 0011 0000 0011 0000 0100 0001 0000
+	// 0x   1    3    0    3    0    4    1    0
+	uint32_t idcode = *((volatile uint32_t *) 0xE0042000);
+
+	for (int i = 0; i < 32; ++i) {
+		int bit = (idcode >> (31 - i)) & 1;
+
+		if (bit) {
+			// 1 - red
+			gpio_clear(GPIOB, GPIO3);
+		} else {
+			// 0 - blue
+			gpio_clear(GPIOB, GPIO4);
+		}
+
+		delay();
+		gpio_set(GPIOB, GPIO3);
+		gpio_set(GPIOB, GPIO4);
+		delay();
+	}
+
+	// green - end of data
+	gpio_clear(GPIOB, GPIO5);
+
 	while (1) {
-		led = LUT[lut_idx];
-		lut_idx = (lut_idx + 1) % (sizeof(LUT) / sizeof(*LUT));
 
-		for (int i = 0; i < 2500000; ++i) {
-			__asm__ volatile("nop");
-		}
-
-		if (gpio_get(GPIOA, GPIO5) != GPIO5) {
-			scb_reset_system();
-		}
 	}
 }
