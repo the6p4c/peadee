@@ -6,6 +6,8 @@ Processor looks like a GD32F1x0
 	IRQ 37 for USB interrupts matches table in user manual
 
 PD Controller looks like a FUSB302 or clone
+	Comms over I2C1
+
 	An initialisation sequence:
 		Writes 0x02 then 0x03 to 0x0C (Reset)
 			-> reset PD then reset all
@@ -45,6 +47,8 @@ PD Controller looks like a FUSB302 or clone
 		Write 0x04 to 0x07
 			-> RX flush + ignore SOP' and SOP''
 
+PA0 - I2C to PD controller
+PA1 - I2C to PD controller
 PA5 - Adapter signal
 	When the adapter is plugged into the cable, it presents a 10 kHz square wave
 	to this pin which the bootloader (and app?) sense to detect if the
