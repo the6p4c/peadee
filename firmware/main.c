@@ -101,6 +101,8 @@ void setup_pd() {
 }
 
 void pd_write_reg(uint8_t reg, uint8_t value) {
+	// See FUSB302 datasheet, Figure 13 "I2C Write Example"
+
 	// Wait for bus idle
 	while (i2c_flag_get(I2C1, I2C_FLAG_I2CBSY));
 
@@ -115,11 +117,11 @@ void pd_write_reg(uint8_t reg, uint8_t value) {
 
 	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
 
-	// Send register address (FUSB302 datasheet, Figure 13)
+	// Send register address
 	i2c_data_transmit(I2C1, reg);
 	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
 
-	// Send register value (FUSB302 datasheet, Figure 13)
+	// Send register value
 	i2c_data_transmit(I2C1, value);
 	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
 
@@ -128,7 +130,9 @@ void pd_write_reg(uint8_t reg, uint8_t value) {
 	while (I2C_CTL0(I2C1) & 0x0200);
 }
 
-uint8_t pd_read_reg(uint8_t reg) {
+void pd_write_fifo(uint8_t *data, size_t count) {
+	// See FUSB302 datasheet, Figure 13 "I2C Write Example"
+
 	// Wait for bus idle
 	while (i2c_flag_get(I2C1, I2C_FLAG_I2CBSY));
 
@@ -143,7 +147,39 @@ uint8_t pd_read_reg(uint8_t reg) {
 
 	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
 
-	// Send register address (FUSB302 datasheet, Figure 14)
+	// Send register address (FIFO)
+	i2c_data_transmit(I2C1, 0x43);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send FIFO data
+	for (size_t i = 0; i < count; ++i) {
+		i2c_data_transmit(I2C1, data[i]);
+		while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+	}
+
+	// Send stop condition
+	i2c_stop_on_bus(I2C1);
+	while (I2C_CTL0(I2C1) & 0x0200);
+}
+
+uint8_t pd_read_reg(uint8_t reg) {
+	// See FUSB302 datasheet, Figure 14 "I2C Read Example"
+
+	// Wait for bus idle
+	while (i2c_flag_get(I2C1, I2C_FLAG_I2CBSY));
+
+	// Send start condition
+	i2c_start_on_bus(I2C1);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_SBSEND));
+
+	// Send slave address
+	i2c_master_addressing(I2C1, PD_ADDR, I2C_TRANSMITTER);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_ADDSEND));
+	i2c_flag_clear(I2C1, I2C_STAT0_ADDSEND);
+
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send register address
 	i2c_data_transmit(I2C1, reg);
 	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
 
@@ -156,10 +192,10 @@ uint8_t pd_read_reg(uint8_t reg) {
 	while (!i2c_flag_get(I2C1, I2C_FLAG_ADDSEND));
 	i2c_flag_clear(I2C1, I2C_STAT0_ADDSEND);
 
-	// Send NACK, since we're only reading one byte (FUSB302 datasheet, Figure
-	// 14)
+	// Send NACK immediately, since we're only reading one byte
 	i2c_ack_config(I2C1, I2C_ACK_DISABLE);
 
+	// Read register value
 	while (!i2c_flag_get(I2C1, I2C_FLAG_RBNE));
 	uint8_t value = i2c_data_receive(I2C1);
 
@@ -171,6 +207,56 @@ uint8_t pd_read_reg(uint8_t reg) {
 	while (I2C_CTL0(I2C1) & 0x0200);
 
 	return value;
+}
+
+void pd_read_fifo(uint8_t *data, size_t count) {
+	// See FUSB302 datasheet, Figure 14 "I2C Read Example"
+
+	// Wait for bus idle
+	while (i2c_flag_get(I2C1, I2C_FLAG_I2CBSY));
+
+	// Send start condition
+	i2c_start_on_bus(I2C1);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_SBSEND));
+
+	// Send slave address
+	i2c_master_addressing(I2C1, PD_ADDR, I2C_TRANSMITTER);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_ADDSEND));
+	i2c_flag_clear(I2C1, I2C_STAT0_ADDSEND);
+
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send register address (FIFO)
+	i2c_data_transmit(I2C1, 0x43);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send start condition
+	i2c_start_on_bus(I2C1);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_SBSEND));
+
+	// Send slave address
+	i2c_master_addressing(I2C1, PD_ADDR, I2C_RECEIVER);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_ADDSEND));
+	i2c_flag_clear(I2C1, I2C_STAT0_ADDSEND);
+
+	for (size_t i = 0; i < count; ++i) {
+		// Is this the last byte?
+		if (i == count - 1) {
+			// Send NACK to stop read
+			i2c_ack_config(I2C1, I2C_ACK_DISABLE);
+		}
+
+		// Read register value
+		while (!i2c_flag_get(I2C1, I2C_FLAG_RBNE));
+		data[i] = i2c_data_receive(I2C1);
+	}
+
+	// Re-enable sending ACKs
+	i2c_ack_config(I2C1, I2C_ACK_ENABLE);
+
+	// Send stop condition
+	i2c_stop_on_bus(I2C1);
+	while (I2C_CTL0(I2C1) & 0x0200);
 }
 
 void setup_systick() {
