@@ -45,6 +45,9 @@ $(FIRMWARE_BIN): $(FIRMWARE_ELF)
 	$(OBJCOPY) -O binary $< $@
 	python ../tools/fw_pad.py
 
+flash: $(FIRMWARE_BIN)
+	python ../tools/flash.py $^
+
 # ==========
 # libopencm3
 # ==========

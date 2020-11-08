@@ -1,8 +1,8 @@
 #include <gd32f1x0.h>
 #include <core_cm3.h>
-#include <gd32f1x0_gpio.h>
-#include <gd32f1x0_i2c.h>
-#include <gd32f1x0_rcu.h>
+#include "gd32f1x0_libopt.h"
+
+#define PD_ADDR 0x44
 
 volatile uint32_t time = 0;
 
@@ -33,13 +33,21 @@ void sys_tick_handler() {
 	time++;
 }
 
-#define DELAY (1000)
 void delay(uint32_t duration) {
 	uint32_t start = time;
 	while (time - start <= duration);
 }
 
-void clock_setup() {
+void setup_interrupts() {
+	__disable_irq();
+	SCB->VTOR = 0x08002c00;
+	for (int i = 0; i < 52; ++i) {
+		nvic_irq_disable(i);
+	}
+	__enable_irq();
+}
+
+void setup_clock() {
 	/* AHB = SYSCLK */
 	RCU_CFG0 |= RCU_AHB_CKSYS_DIV1;
 	/* APB2 = AHB */
@@ -54,68 +62,164 @@ void clock_setup() {
 	RCU_CTL0 |= RCU_CTL0_PLLEN;
 
 	/* wait until PLL is stable */
-	while(0 == (RCU_CTL0 & RCU_CTL0_PLLSTB));
+	while((RCU_CTL0 & RCU_CTL0_PLLSTB) == 0);
 
 	/* select PLL as system clock */
 	RCU_CFG0 &= ~RCU_CFG0_SCS;
 	RCU_CFG0 |= RCU_CKSYSSRC_PLL;
 
 	/* wait until PLL is selected as system clock */
-	while(0 == (RCU_CFG0 & RCU_SCSS_PLL));
+	while ((RCU_CFG0 & RCU_SCSS_PLL) == 0);
 }
 
-int main() {
-	__disable_irq();
-	SCB->VTOR = 0x08002c00;
-	for (int i = 0; i < 70; ++i) {
-		nvic_irq_disable(i);
-	}
-	__enable_irq();
-
-	clock_setup();
-
-	i2c_enable(I2C1);
-
+void setup_gpio() {
 	rcu_periph_clock_enable(RCU_GPIOA);
 	rcu_periph_clock_enable(RCU_GPIOB);
 
+	// Adapter signal
 	gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_5);
-	gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5);
 
-	gpio_bit_set(GPIOB, GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5);
+	// I2C to FUSB302
+	uint16_t i2c_pins = GPIO_PIN_0 | GPIO_PIN_1;
+	gpio_af_set(GPIOA, GPIO_AF_4, i2c_pins);
+	gpio_mode_set(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, i2c_pins);
+	gpio_output_options_set(GPIOA, GPIO_OTYPE_OD, GPIO_OSPEED_50MHZ, i2c_pins);
 
+	// RGB LED (off by default)
+	uint16_t led_pins = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5;
+	gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, led_pins);
+	gpio_bit_set(GPIOB, led_pins);
+}
+
+void setup_pd() {
+	rcu_periph_clock_enable(RCU_I2C1);
+
+	i2c_clock_config(I2C1, 100000, I2C_DTCY_2);
+	i2c_mode_addr_config(I2C1, I2C_I2CMODE_ENABLE, I2C_ADDFORMAT_7BITS, 0);
+	i2c_ack_config(I2C1, I2C_ACK_ENABLE);
+	i2c_enable(I2C1);
+}
+
+void pd_write_reg(uint8_t reg, uint8_t value) {
+	// Wait for bus idle
+	while (i2c_flag_get(I2C1, I2C_FLAG_I2CBSY));
+
+	// Send start condition
+	i2c_start_on_bus(I2C1);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_SBSEND));
+
+	// Send slave address
+	i2c_master_addressing(I2C1, PD_ADDR, I2C_TRANSMITTER);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_ADDSEND));
+	i2c_flag_clear(I2C1, I2C_STAT0_ADDSEND);
+
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send register address (FUSB302 datasheet, Figure 13)
+	i2c_data_transmit(I2C1, reg);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send register value (FUSB302 datasheet, Figure 13)
+	i2c_data_transmit(I2C1, value);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send stop condition
+	i2c_stop_on_bus(I2C1);
+	while (I2C_CTL0(I2C1) & 0x0200);
+}
+
+uint8_t pd_read_reg(uint8_t reg) {
+	// Wait for bus idle
+	while (i2c_flag_get(I2C1, I2C_FLAG_I2CBSY));
+
+	// Send start condition
+	i2c_start_on_bus(I2C1);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_SBSEND));
+
+	// Send slave address
+	i2c_master_addressing(I2C1, PD_ADDR, I2C_TRANSMITTER);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_ADDSEND));
+	i2c_flag_clear(I2C1, I2C_STAT0_ADDSEND);
+
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send register address (FUSB302 datasheet, Figure 14)
+	i2c_data_transmit(I2C1, reg);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_TBE));
+
+	// Send start condition
+	i2c_start_on_bus(I2C1);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_SBSEND));
+
+	// Send slave address
+	i2c_master_addressing(I2C1, PD_ADDR, I2C_RECEIVER);
+	while (!i2c_flag_get(I2C1, I2C_FLAG_ADDSEND));
+	i2c_flag_clear(I2C1, I2C_STAT0_ADDSEND);
+
+	// Send NACK, since we're only reading one byte (FUSB302 datasheet, Figure
+	// 14)
+	i2c_ack_config(I2C1, I2C_ACK_DISABLE);
+
+	while (!i2c_flag_get(I2C1, I2C_FLAG_RBNE));
+	uint8_t value = i2c_data_receive(I2C1);
+
+	// Re-enable sending ACKs
+	i2c_ack_config(I2C1, I2C_ACK_ENABLE);
+
+	// Send stop condition
+	i2c_stop_on_bus(I2C1);
+	while (I2C_CTL0(I2C1) & 0x0200);
+
+	return value;
+}
+
+void setup_systick() {
 	systick_clksource_set(SYSTICK_CLKSOURCE_HCLK_DIV8);
 	SysTick->LOAD = 8999;
 	SysTick->CTRL |= (1 << SysTick_CTRL_TICKINT_Pos) | (1 << SysTick_CTRL_ENABLE_Pos);
+}
 
-	delay(DELAY);
+void led_set_rgb(uint8_t rgb) {
+	gpio_bit_write(GPIOB, GPIO_PIN_3, rgb & 0b100 ? RESET : SET);
+	gpio_bit_write(GPIOB, GPIO_PIN_5, rgb & 0b010 ? RESET : SET);
+	gpio_bit_write(GPIOB, GPIO_PIN_4, rgb & 0b001 ? RESET : SET);
+}
 
-	//   bbbr bbrr bbbb bbrr bbbb brbb bbbr bbbb
-	// 0b0001 0011 0000 0011 0000 0100 0001 0000
-	// 0x   1    3    0    3    0    4    1    0
-	uint32_t idcode = *((volatile uint32_t *) 0xE0042000);
-
-	for (int i = 0; i < 32; ++i) {
-		int bit = (idcode >> (31 - i)) & 1;
+void led_flash_value(uint32_t value, int bits) {
+	for (int i = 0; i < bits; ++i) {
+		int bit = (value >> (bits - 1 - i)) & 1;
 
 		if (bit) {
 			// 1 - red
-			gpio_bit_reset(GPIOB, GPIO_PIN_3);
+			led_set_rgb(0b100);
 		} else {
 			// 0 - blue
-			gpio_bit_reset(GPIOB, GPIO_PIN_4);
+			led_set_rgb(0b001);
 		}
 
-		delay(DELAY);
-		gpio_bit_set(GPIOB, GPIO_PIN_3);
-		gpio_bit_set(GPIOB, GPIO_PIN_4);
-		delay(DELAY);
+		delay(500);
+		led_set_rgb(0b000);
+		delay(500);
 	}
 
 	// green - end of data
-	gpio_bit_reset(GPIOB, GPIO_PIN_5);
+	led_set_rgb(0b010);
+}
 
-	while (1) {
+int main() {
+	setup_interrupts();
+	setup_clock();
+	setup_gpio();
+	setup_pd();
+	setup_systick();
 
-	}
+	delay(1000);
+
+	// Reset PD logic and FUSB302
+	pd_write_reg(0x0C, 0x03);
+
+	uint8_t device_id = pd_read_reg(0x01);
+	led_flash_value(device_id, 8);
+
+	while (1);
 }
