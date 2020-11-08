@@ -3,4 +3,4 @@ MEMORY {
 	ram (rwx) : ORIGIN = 0x20000000, LENGTH = 8K
 }
 
-INCLUDE libopencm3/lib/cortex-m-generic.ld
+INCLUDE lib/libopencm3/lib/cortex-m-generic.ld
