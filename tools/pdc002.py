@@ -158,7 +158,7 @@ class PDC002Bootloader:
 
         self.write_packet(Packet(
             payload_type=self.READ_BIG,
-            payload=struct.pack('<IB', address, count)
+            payload=struct.pack('<IH', address, count)
         ))
 
         data = []
