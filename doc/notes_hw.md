@@ -13,7 +13,9 @@ or clone
 |---|---|
 | PA0 | I2C to PD controller |
 | PA1 | I2C to PD controller |
-| PA5 | Adapter signal |
+| PA2 | PD controller interrupt line - TBC |
+| PA5 | Programming adapter signal |
+| PA6 | ??? - used in SPI-ish logic |
 | PB3 | RGB LED (red) |
 | PB4 | RGB LED (blue) |
 | PB5 | RGB LED (green) |
@@ -25,6 +27,41 @@ When the adapter is plugged into the cable, it presents a 10 kHz square wave to
 PA5 which the bootloader (and app?) sense to detect if the bootloader should
 continue running (signal was present) or the application should run (signal not
 present after a set amount of time)
+
+Some serial thing reads from PA6 whenever an edge is detected on EXTI line 3 and
+creates an 8-bit string from it
+- If it's been more than 8ms since the last edge, throw the data away and
+configure PA5 and PA6 as inputs
+	- No pull on PA5, pull-up on PA6
+- If 8 bits have been read, detect:
+	- `A8 = 1010 1000` -> Path A
+	- `AC = 1010 1100` -> Path A
+	- `A4 = 1010 0100` -> Path B
+	- `A6 = 1010 0110` -> Path A
+	- `A2 = 1010 0010` -> Path B
+	- `B6 = 1011 0110` -> Path B
+	- Anything else    -> Path A
+	- Store 0x62 in mask
+- If greater than 16 bits have been read:
+	- If exactly 17 bits have been read, read mask and:
+		- `48 = 0100 1000` -> Path A
+		- `68 = 0110 1000` -> Path A
+		- `70 = 0111 0000` -> Path A
+		- `78 = 0111 1000` -> Path A
+		- `62 = 0110 0010` -> Path A
+		- Anything else    -> Path B
+		- After taking A/B:
+			- Delay
+			- Configure as outputs + low
+			- Delay
+			- Configure as AF (SPI??)
+	- Otherwise:
+		- Configure as AF
+	- If top (?) bit of data is set -> Path B
+	- Otherwise -> Path A
+- Note:
+	- Path A: configure PA5 and PA6 as outputs, set HIGH
+	- Path B: configure PA5 and PA6 as outputs, set LOW
 
 # Programming Adapter
 Numbered left to right (viewing component side), where left = WITRN logo, right
