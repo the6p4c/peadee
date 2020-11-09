@@ -39,7 +39,7 @@ FIRMWARE_BIN := firmware.bin
 all: $(FIRMWARE_ELF) $(FIRMWARE_BIN)
 
 $(FIRMWARE_ELF): $(SOURCES) $(LIBOPENCM3_ROOT)/lib/libopencm3_gd32f1x0.a $(GD32F1X0_FWL_ROOT)/libgd32f1x0_fwl.a $(CMSIS_ROOT)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SOURCES) $(LDLIBS) -o firmware.elf
+	$(CC) $(CFLAGS) -Wall -Wextra $(LDFLAGS) $(SOURCES) $(LDLIBS) -o firmware.elf
 
 $(FIRMWARE_BIN): $(FIRMWARE_ELF)
 	$(OBJCOPY) -O binary $< $@

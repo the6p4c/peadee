@@ -1,3 +1,5 @@
+#include <stddef.h>
+#include <stdio.h>
 #include <gd32f1x0.h>
 #include <core_cm3.h>
 #include "gd32f1x0_libopt.h"
@@ -259,6 +261,40 @@ void pd_read_fifo(uint8_t *data, size_t count) {
 	while (I2C_CTL0(I2C1) & 0x0200);
 }
 
+uint32_t log_address = 0x0800f400;
+void setup_log() {
+	fmc_unlock();
+	fmc_page_erase(log_address);
+}
+
+void log_write(char *s) {
+	int i = 0;
+	char prev = '\0';
+	do {
+		if ((i & 1) == 0) {
+			prev = *s;
+		} else {
+			uint16_t word = (((uint16_t) *s) << 8) | prev;
+			fmc_halfword_program(log_address, word);
+			log_address += 2;
+		}
+
+		i++;
+	} while (*s++ != '\0');
+
+	if ((i & 1) == 1) {
+		uint16_t word = prev;
+		fmc_halfword_program(log_address, word);
+		log_address += 2;
+	}
+}
+
+#define log_printf(fmt, ...) do { \
+	char s[256]; \
+	snprintf(s, 256, fmt, __VA_ARGS__); \
+	log_write(s); \
+} while (0)
+
 void setup_systick() {
 	systick_clksource_set(SYSTICK_CLKSOURCE_HCLK_DIV8);
 	SysTick->LOAD = 8999;
@@ -297,15 +333,12 @@ int main() {
 	setup_clock();
 	setup_gpio();
 	setup_pd();
+	setup_log();
 	setup_systick();
 
-	delay(1000);
+	log_printf("hello, world! %d + %d = %d", 1, 2, 1 + 2);
 
-	// Reset PD logic and FUSB302
-	pd_write_reg(0x0C, 0x03);
-
-	uint8_t device_id = pd_read_reg(0x01);
-	led_flash_value(device_id, 8);
+	led_set_rgb(0b010);
 
 	while (1);
 }
