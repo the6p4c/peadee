@@ -35,6 +35,7 @@
 #define PD_SWITCHES1_AUTO_CRC (1 << 2)
 #define PD_SWITCHES1_TXCC2 (1 << 1)
 #define PD_SWITCHES1_TXCC1 (1 << 0)
+#define PD_CONTROL0_TX_START (1 << 0)
 #define PD_CONTROL3_SEND_HARD_RESET (1 << 6)
 #define PD_CONTROL3_N_RETRIES_POS (1)
 #define PD_CONTROL3_AUTO_RETRY (1 << 0)
@@ -43,6 +44,12 @@
 #define PD_STATUS0_BC_LVL_MASK (0b11 << 0)
 #define PD_STATUS1_RX_EMPTY (1 << 5)
 
+#define PD_TXFIFO_TOK_SOP1 (0x12)
+#define PD_TXFIFO_TOK_SOP2 (0x13)
+#define PD_TXFIFO_TOK_PACKSYM(n) (0x80 + (n))
+#define PD_TXFIFO_TOK_JAM_CRC (0xFF)
+#define PD_TXFIFO_TOK_EOP (0x14)
+#define PD_TXFIFO_TOK_TXOFF (0xFE)
 #define PD_RXFIFO_TOK_SOP_MASK (0b11100000)
 #define PD_RXFIFO_TOK_SOP (0b11100000)
 
@@ -62,6 +69,7 @@ void pd_setup();
 int pd_try_attach();
 
 int pd_poll_rxfifo(struct pd_message *message);
+void pd_tx_standard(uint16_t header, struct pd_message_standard *payload);
 
 void pd_write_reg(uint8_t reg, uint8_t value);
 void pd_write_fifo(uint8_t *data, size_t count);

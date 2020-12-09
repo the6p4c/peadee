@@ -150,6 +150,46 @@ int pd_poll_rxfifo(struct pd_message *message) {
 	return 1;
 }
 
+void pd_tx_standard(uint16_t header, struct pd_message_standard *payload) {
+	uint8_t data[48];
+	size_t count = 0;
+
+	uint8_t number_of_data_objects = (header >> 12) & 0b111;
+	// Total message length is 16-bit header (2 bytes) + 4 bytes per data object
+	uint8_t message_length = 2 + number_of_data_objects * 4;
+
+	// SOP header
+	data[count++] = PD_TXFIFO_TOK_SOP1;
+	data[count++] = PD_TXFIFO_TOK_SOP1;
+	data[count++] = PD_TXFIFO_TOK_SOP1;
+	data[count++] = PD_TXFIFO_TOK_SOP2;
+
+	// PACKSYM for message bytes
+	data[count++] = PD_TXFIFO_TOK_PACKSYM(message_length);
+
+	// Message header
+	data[count++] = header & 0xFF;
+	data[count++] = (header >> 4) & 0xFF;
+
+	// Data objects
+	for (int i = 0; i < number_of_data_objects; ++i) {
+		uint32_t data_object = payload->data_objects[i];
+		data[count++] = data_object & 0xFF;
+		data[count++] = (data_object >> 8) & 0xFF;
+		data[count++] = (data_object >> 16) & 0xFF;
+		data[count++] = (data_object >> 24) & 0xFF;
+	}
+
+	// Message trailer
+	data[count++] = PD_TXFIFO_TOK_JAM_CRC;
+	data[count++] = PD_TXFIFO_TOK_EOP;
+	data[count++] = PD_TXFIFO_TOK_TXOFF;
+
+	// Write to FIFO and start TX
+	pd_write_fifo(data, count);
+	pd_write_reg(PD_REG_CONTROL0, PD_CONTROL0_TX_START);
+}
+
 void pd_write_reg(uint8_t reg, uint8_t value) {
 	// See FUSB302 datasheet, Figure 13 "I2C Write Example"
 

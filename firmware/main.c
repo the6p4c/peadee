@@ -134,39 +134,33 @@ int main() {
 	led_set_rgb(0b010);
 
 	struct pd_message message;
-	int pdo_to_use = -1;
+	int requested_pdo_idx = -1;
 
 	int led = 0b010;
 	while (1) {
-		if (pdo_to_use >= 0) {
-			log_printf("sending request with %d object position", pdo_to_use);
-			uint8_t request[] = {
-				0x12, 0x12, 0x12, 0x13, // SOP
-				0x86, // PACKSYM (6)
-				// Message header
-				0b01000010,
-				0b00010100,
-				// Data object
-				0b00110010,
-				0b01010000,
-				0b00000000,
-				(pdo_to_use + 1) << 4,
-				0xFF, // JAM_CRC
-				0x14, // EOP
-				0xA1 // TXON
-			};
+		if (requested_pdo_idx >= 0) {
+			log_printf("Requesting PDO at index %d", requested_pdo_idx);
 
-			pd_write_fifo(request, sizeof(request));
-			pd_write_reg(0x06, 5);
+			uint16_t header = 0b0001010001000010;
 
-			pdo_to_use = -2;
+			uint32_t pdo = 0;
+			pdo |= (requested_pdo_idx + 1) << 28;
+			pdo |= (200 / 10) << 10;
+			pdo |= 500 / 10;
+
+			struct pd_message_standard payload;
+			payload.data_objects[0] = pdo;
+
+			pd_tx_standard(header, &payload);
+
+			requested_pdo_idx = -1;
 		}
 
 		if (pd_poll_rxfifo(&message)) {
 			led_set_rgb(led);
 			led ^= 0b010;
 
-			log_printf("[main] Message header = %04x", message.header);
+			log_printf("Message header = %04x", message.header);
 
 			uint8_t message_type = message.header & 0b1111;
 			uint8_t message_id = (message.header >> 9) & 0b111;
@@ -174,7 +168,7 @@ int main() {
 			uint8_t extended = (message.header >> 15) & 0b1;
 
 			log_printf(
-				"[main] Message Type = %x, Message ID = %x, Number of Data Objects = %x, Extended = %d",
+				"Message Type = %x, Message ID = %x, Number of Data Objects = %x, Extended = %d",
 				message_type, message_id, number_of_data_objects, extended
 			);
 
@@ -186,13 +180,11 @@ int main() {
 						uint32_t pdo = payload->data_objects[i];
 
 						if (((pdo >> 30) & 0b11) == 0) {
-							pdo_to_use = i;
+							requested_pdo_idx = i;
 						}
 					}
 				}
 			} 
-
-			pd_write_reg(PD_REG_CONTROL1, pd_read_reg(PD_REG_CONTROL1) | (1 << 2));
 		}
 	}
 }
