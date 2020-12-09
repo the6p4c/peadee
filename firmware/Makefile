@@ -1,6 +1,7 @@
 PREFIX ?= arm-none-eabi-
 CC := $(PREFIX)gcc
 OBJCOPY := $(PREFIX)objcopy
+PYTHON ?= python3
 
 LIBOPENCM3_ROOT := lib/libopencm3
 GD32F1X0_FWL_ROOT := lib/GD32F1x0_Firmware_Library_v3.1.0
@@ -43,10 +44,10 @@ $(FIRMWARE_ELF): $(SOURCES) $(LIBOPENCM3_ROOT)/lib/libopencm3_gd32f1x0.a $(GD32F
 
 $(FIRMWARE_BIN): $(FIRMWARE_ELF)
 	$(OBJCOPY) -O binary $< $@
-	python ../tools/fw_pad.py
+	$(PYTHON) ../tools/fw_pad.py
 
 flash: $(FIRMWARE_BIN)
-	python ../tools/flash.py $^
+	$(PYTHON) ../tools/flash.py $^
 
 # ==========
 # libopencm3

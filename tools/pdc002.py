@@ -81,6 +81,11 @@ class PDC002Bootloader:
             if handle is None:
                 raise RuntimeError('could not open PDC002 device')
 
+            try:
+                handle.setAutoDetachKernelDriver(True)
+            except usb1.USBErrorNotSupported:
+                pass
+
             with handle.claimInterface(0):
                 yield PDC002Bootloader(handle)
 
