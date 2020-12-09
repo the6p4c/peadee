@@ -1,6 +1,8 @@
 [submodule "firmware/lib/CMSIS"]
 	path = firmware/lib/CMSIS
 	url = https://github.com/ARM-software/CMSIS_5.git
+	ignore = dirty
 [submodule "firmware/lib/libopencm3"]
 	path = firmware/lib/libopencm3
 	url = https://github.com/libopencm3/libopencm3.git
+	ignore = dirty
