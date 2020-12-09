@@ -8,15 +8,33 @@
 #include "log.h"
 #include "pd.h"
 
-#define PD_ADDR 0x44
+void gpio_setup() {
+	rcu_periph_clock_enable(RCU_GPIOA);
+	rcu_periph_clock_enable(RCU_GPIOB);
 
-volatile uint32_t time = 0;
+	// Adapter bootloader signal
+	rcu_periph_clock_enable(RCU_GPIOA);
+	gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_5);
+
+	// RGB LED
+	uint16_t led_pins = GPIO_PIN_3 | GPIO_PIN_4 | GPIO_PIN_5;
+	gpio_mode_set(GPIOB, GPIO_MODE_OUTPUT, GPIO_PUPD_NONE, led_pins);
+	gpio_bit_set(GPIOB, led_pins);
+
+	// FUSB302 I2C interface
+	uint16_t i2c_pins = GPIO_PIN_0 | GPIO_PIN_1;
+	gpio_af_set(GPIOA, GPIO_AF_4, i2c_pins);
+	gpio_mode_set(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, i2c_pins);
+	gpio_output_options_set(GPIOA, GPIO_OTYPE_OD, GPIO_OSPEED_50MHZ, i2c_pins);
+}
 
 uint8_t get_signal() {
 	return gpio_input_bit_get(GPIOA, GPIO_PIN_5) == SET ? 1 : 0;
 }
 
+static volatile uint32_t time = 0;
 static volatile int no_bootloader = 0;
+
 void sys_tick_handler() {
 	time++;
 
@@ -84,10 +102,6 @@ void clock_setup() {
 }
 
 void systick_setup() {
-	// Adapter bootloader signal
-	rcu_periph_clock_enable(RCU_GPIOA);
-	gpio_mode_set(GPIOA, GPIO_MODE_INPUT, GPIO_PUPD_NONE, GPIO_PIN_5);
-
 	systick_clksource_set(SYSTICK_CLKSOURCE_HCLK_DIV8);
 	SysTick->LOAD = 8999;
 	SysTick->CTRL |= (1 << SysTick_CTRL_TICKINT_Pos) | (1 << SysTick_CTRL_ENABLE_Pos);
@@ -98,12 +112,11 @@ void die() {
 	while (1);
 }
 
+
 int main() {
 	interrupts_setup();
 	clock_setup();
-	rcu_periph_clock_enable(RCU_GPIOA);
-	rcu_periph_clock_enable(RCU_GPIOB);
-	led_setup();
+	gpio_setup();
 	pd_setup();
 	systick_setup();
 
@@ -113,55 +126,59 @@ int main() {
 	log_setup();
 	no_bootloader = 1;
 
-	pd_write_reg(0xc, 2);
-	pd_write_reg(0xc, 3);
-	delay(5);
-	pd_write_reg(0xb, 0xf);
-	pd_write_reg(2, 7);
-	delay(2);
-	int status1 = pd_read_reg(0x40);
-	pd_write_reg(2, 3);
-	pd_write_reg(2, 0xb);
-	delay(2);
-	int status2 = pd_read_reg(0x40);
-	pd_write_reg(2, 3);
-
-	int success = (status1 & 3) | (status2 & 3);
-	if (success == 0) {
-		log_write("failed to find pin to comm on");
+	if (!pd_try_attach()) {
 		die();
 	}
 
-	pd_write_reg(9, 0x40);
+	//pd_write_reg(0xc, 2);
+	//pd_write_reg(0xc, 3);
+	//delay(5);
+	//pd_write_reg(0xb, 0xf);
+	//pd_write_reg(2, 7);
+	//delay(2);
+	//int status1 = pd_read_reg(0x40);
+	//pd_write_reg(2, 3);
+	//pd_write_reg(2, 0xb);
+	//delay(2);
+	//int status2 = pd_read_reg(0x40);
+	//pd_write_reg(2, 3);
 
-	pd_write_reg(0xc, 3);
-	delay(5);
-	pd_write_reg(9, 7);
-	pd_write_reg(0xe, 0xfc);
-	pd_write_reg(0xf, 0xff);
-	pd_write_reg(10, 0xef);
-	pd_write_reg(6, 0);
-	pd_write_reg(0xc, 2);
+	//int success = (status1 & 3) | (status2 & 3);
+	//if (success == 0) {
+	//	log_write("failed to find pin to comm on");
+	//	die();
+	//}
 
-	status1 &= 3;
-	status2 &= 3;
+	//pd_write_reg(9, 0x40);
 
-	if (status1 == 0) {
-		log_write("txcc2");
-		pd_write_reg(2, 0xb);
-		//pd_write_reg(3, 0x42);
-		pd_write_reg(3, 0x22 | (1 << 2));
-	} else {
-		log_write("txcc1");
-		pd_write_reg(2, 7);
-		//pd_write_reg(3, 0x41);
-		pd_write_reg(3, 0x21 | (1 << 2));
-	}
+	//pd_write_reg(0xc, 3);
+	//delay(5);
+	//pd_write_reg(9, 7);
+	//pd_write_reg(0xe, 0xfc);
+	//pd_write_reg(0xf, 0xff);
+	//pd_write_reg(10, 0xef);
+	//pd_write_reg(6, 0);
+	//pd_write_reg(0xc, 2);
 
-	pd_write_reg(0xb, 0xf);
-	pd_read_reg(0x3e);
-	pd_read_reg(0x3f);
-	pd_read_reg(0x42);
+	//status1 &= 3;
+	//status2 &= 3;
+
+	//if (status1 == 0) {
+	//	log_write("txcc2");
+	//	pd_write_reg(2, 0xb);
+	//	//pd_write_reg(3, 0x42);
+	//	pd_write_reg(3, 0x22 | (1 << 2));
+	//} else {
+	//	log_write("txcc1");
+	//	pd_write_reg(2, 7);
+	//	//pd_write_reg(3, 0x41);
+	//	pd_write_reg(3, 0x21 | (1 << 2));
+	//}
+
+	//pd_write_reg(0xb, 0xf);
+	//pd_read_reg(0x3e);
+	//pd_read_reg(0x3f);
+	//pd_read_reg(0x42);
 
 	log_write("Init complete");
 
@@ -232,7 +249,7 @@ int main() {
 		}
 
 		uint8_t status1 = pd_read_reg(PD_REG_STATUS1);
-		log_printf("[main] STATUS1 = %02x", status1);
+		//log_printf("[main] STATUS1 = %02x", status1);
 
 		if ((status1 & PD_STATUS1_RX_EMPTY) != PD_STATUS1_RX_EMPTY) {
 			log_write("[main] RX FIFO not empty");

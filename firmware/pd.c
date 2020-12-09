@@ -21,13 +21,7 @@
 extern void delay(uint32_t duration);
 
 void pd_setup() {
-	rcu_periph_clock_enable(RCU_GPIOA);
 	rcu_periph_clock_enable(RCU_I2C1);
-
-	uint16_t i2c_pins = GPIO_PIN_0 | GPIO_PIN_1;
-	gpio_af_set(GPIOA, GPIO_AF_4, i2c_pins);
-	gpio_mode_set(GPIOA, GPIO_MODE_AF, GPIO_PUPD_NONE, i2c_pins);
-	gpio_output_options_set(GPIOA, GPIO_OTYPE_OD, GPIO_OSPEED_50MHZ, i2c_pins);
 
 	i2c_clock_config(I2C1, 100000, I2C_DTCY_2);
 	i2c_mode_addr_config(I2C1, I2C_I2CMODE_ENABLE, I2C_ADDFORMAT_7BITS, 0);
@@ -41,34 +35,23 @@ int pd_try_attach() {
 	pd_write_reg(PD_REG_RESET, PD_RESET_PD_RESET);
 	pd_write_reg(PD_REG_RESET, PD_RESET_PD_RESET | PD_RESET_SW_RES);
 
-	delay(10);
+	delay(5);
 
 	// Turn on all internal enables
 	pd_write_reg(PD_REG_POWER, 0xF);
 
-	delay(10);
-
 	// Present Rd pull-downs on CC1 and CC2, measure CC1
 	pd_write_reg(PD_REG_SWITCHES0, PD_SWITCHES0_MEAS_CC1 | PD_SWITCHES0_PDWN2 | PD_SWITCHES0_PDWN1);
-
-	delay(10);
-
+	delay(2);
 	uint8_t meas_cc1_status0 = pd_read_reg(PD_REG_STATUS0);
-	log_printf("[pd_try_attach] CC1 status: %02x", meas_cc1_status0);
-	
+	// Disable measurement
 	pd_write_reg(PD_REG_SWITCHES0, PD_SWITCHES0_PDWN2 | PD_SWITCHES0_PDWN1);
 
 	// Present Rd pull-downs on CC1 and CC2, measure CC2
 	pd_write_reg(PD_REG_SWITCHES0, PD_SWITCHES0_MEAS_CC2 | PD_SWITCHES0_PDWN2 | PD_SWITCHES0_PDWN1);
-
-	delay(10);
-
+	delay(2);
 	uint8_t meas_cc2_status0 = pd_read_reg(PD_REG_STATUS0);
-	log_printf("[pd_try_attach] CC2 status: %02x", meas_cc2_status0);
-
-	pd_write_reg(PD_REG_SWITCHES0, PD_SWITCHES0_PDWN2 | PD_SWITCHES0_PDWN1);
-
-	// Stop measurement
+	// Disable measurement
 	pd_write_reg(PD_REG_SWITCHES0, PD_SWITCHES0_PDWN2 | PD_SWITCHES0_PDWN1);
 
 	// Determine orientation (from type-C spec):
@@ -82,34 +65,49 @@ int pd_try_attach() {
 	if (cc1_bc_lvl != 0 && cc2_bc_lvl != 0) {
 		// Both pins were high, so we weren't able to tell which pin we should
 		// use to do PD communication on
-		log_write("[pd_try_attach] Fail: both CC pins were pulled up");
 		return 0;
 	}
 
+	// Send a hard reset to restart the process now that we know which CC pin to
+	// communicate on
+	pd_write_reg(PD_REG_CONTROL3, PD_CONTROL3_SEND_HARD_RESET);
+	// Perform another full reset of the FUSB302
+	pd_write_reg(PD_REG_RESET, PD_RESET_PD_RESET | PD_RESET_SW_RES);
+
+	delay(5);
+
+	// Enable 3 retries and automatic retry for missing GoodCRC
+	pd_write_reg(PD_REG_CONTROL3, (3 << PD_CONTROL3_N_RETRIES_POS) | PD_CONTROL3_AUTO_RETRY);
+
+	// One last PD reset for good luck
+	pd_write_reg(PD_REG_RESET, PD_RESET_PD_RESET | PD_RESET_SW_RES);
+
 	if (cc1_bc_lvl != 0) {
-		// Use CC1 for PD communication
+		// CC1 was highest - use CC1 for PD communication
+		pd_write_reg(
+			PD_REG_SWITCHES0,
+			PD_SWITCHES0_MEAS_CC1 | PD_SWITCHES0_PDWN2 | PD_SWITCHES0_PDWN1
+		);
 		pd_write_reg(
 			PD_REG_SWITCHES1,
-			pd_read_reg(PD_REG_SWITCHES1) | PD_SWITCHES1_AUTO_CRC | PD_SWITCHES1_TXCC1
+			(0b01 << PD_SWITCHES1_SPECREV_POS) | PD_SWITCHES1_AUTO_CRC | PD_SWITCHES1_TXCC1
 		);
-
-		log_write("[pd_try_attach] Success: comms on CC1");
-
-		return 1;
 	} else {
-		// Use CC2 for PD communication
+		// CC2 was highest - use CC2 for PD communication
+		pd_write_reg(
+			PD_REG_SWITCHES0,
+			PD_SWITCHES0_MEAS_CC2 | PD_SWITCHES0_PDWN2 | PD_SWITCHES0_PDWN1
+		);
 		pd_write_reg(
 			PD_REG_SWITCHES1,
-			pd_read_reg(PD_REG_SWITCHES1) | PD_SWITCHES1_AUTO_CRC | PD_SWITCHES1_TXCC2
+			(0b01 << PD_SWITCHES1_SPECREV_POS) | PD_SWITCHES1_AUTO_CRC | PD_SWITCHES1_TXCC2
 		);
-
-		log_write("[pd_try_attach] Success: comms on CC2");
-
-		return 2;
 	}
 
-	// This shouldn't be reachable, but would be a failure if it was
-	return 0;
+	// Turn on all internal enables
+	pd_write_reg(PD_REG_POWER, 0xF);
+
+	return 1;
 }
 
 void pd_write_reg(uint8_t reg, uint8_t value) {
