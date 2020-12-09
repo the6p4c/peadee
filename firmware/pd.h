@@ -57,10 +57,19 @@ struct pd_message_standard {
 	uint32_t data_objects[7];
 };
 
+struct pd_message_extended {
+	uint16_t extended_header;
+	// Though the spec allows 260 bytes of data, the FUSB302 only has 48 bytes
+	// of space in the TxFIFO. Subtracting the header and extended header
+	// leaves us with 44 bytes of data.
+	uint8_t data[44];
+};
+
 struct pd_message {
 	uint16_t header;
 	union {
 		struct pd_message_standard standard;
+		struct pd_message_extended extended;
 	} payload;
 	uint32_t crc;
 };
@@ -70,6 +79,7 @@ int pd_try_attach();
 
 int pd_poll_rxfifo(struct pd_message *message);
 void pd_tx_standard(uint16_t header, struct pd_message_standard *payload);
+void pd_tx_extended(uint16_t header, struct pd_message_extended *payload);
 
 void pd_write_reg(uint8_t reg, uint8_t value);
 void pd_write_fifo(uint8_t *data, size_t count);

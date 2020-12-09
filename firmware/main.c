@@ -135,13 +135,16 @@ int main() {
 
 	struct pd_message message;
 	int requested_pdo_idx = -1;
+	int msg_id = 1;
 
 	int led = 0b010;
 	while (1) {
 		if (requested_pdo_idx >= 0) {
-			log_printf("Requesting PDO at index %d", requested_pdo_idx);
+			log_printf("pdo=%d,mi=%d", requested_pdo_idx, msg_id);
 
-			uint16_t header = 0b0001010001000010;
+			uint16_t header = 0b0001000010000010;
+			header |= msg_id++ << 9;
+			msg_id &= 0b111;
 
 			uint32_t pdo = 0;
 			pdo |= (requested_pdo_idx + 1) << 28;
@@ -157,34 +160,47 @@ int main() {
 		}
 
 		if (pd_poll_rxfifo(&message)) {
-			led_set_rgb(led);
-			led ^= 0b010;
+			do {
+				led_set_rgb(led);
+				led ^= 0b010;
 
-			log_printf("Message header = %04x", message.header);
+				log_printf("hdr=%04x", message.header);
 
-			uint8_t message_type = message.header & 0b1111;
-			uint8_t message_id = (message.header >> 9) & 0b111;
-			uint8_t number_of_data_objects = (message.header >> 12) & 0b111;
-			uint8_t extended = (message.header >> 15) & 0b1;
+				uint8_t message_type = message.header & 0b1111;
+				uint8_t message_id = (message.header >> 9) & 0b111;
+				uint8_t number_of_data_objects = (message.header >> 12) & 0b111;
+				uint8_t extended = (message.header >> 15) & 0b1;
+				uint8_t spec_revision = (message.header >> 6) & 0b11;
 
-			log_printf(
-				"Message Type = %x, Message ID = %x, Number of Data Objects = %x, Extended = %d",
-				message_type, message_id, number_of_data_objects, extended
-			);
+				log_printf(
+					"mt=%x,mid=%x,dos=%x,ext=%d,sr=%d",
+					message_type, message_id, number_of_data_objects, extended, spec_revision
+				);
 
-			if (extended == 0) {
-				struct pd_message_standard *payload = &message.payload.standard;
+				if (extended == 0) {
+					struct pd_message_standard *payload = &message.payload.standard;
 
-				if (number_of_data_objects != 0 && message_type == 0b00001) {
-					for (int i = 0; i < number_of_data_objects; ++i) {
-						uint32_t pdo = payload->data_objects[i];
+					if (number_of_data_objects != 0 && message_type == 0b00001) {
+						for (int i = 0; i < number_of_data_objects; ++i) {
+							uint32_t pdo = payload->data_objects[i];
 
-						if (((pdo >> 30) & 0b11) == 0) {
-							requested_pdo_idx = i;
+							log_printf("pdo=%08lx", pdo);
+
+							if (((pdo >> 30) & 0b11) == 0) {
+								requested_pdo_idx = i;
+							}
 						}
 					}
+				} else {
+					struct pd_message_extended *payload = &message.payload.extended;
+
+					log_printf("Extended header = %04x", payload->extended_header);
+
+					for (int i = 0; i < (payload->extended_header & 0x1FF); ++i) {
+						log_printf("%02x", payload->data[i]);
+					}
 				}
-			} 
+			} while (pd_poll_rxfifo(&message));
 		}
 	}
 }

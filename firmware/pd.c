@@ -90,7 +90,7 @@ int pd_try_attach() {
 		);
 		pd_write_reg(
 			PD_REG_SWITCHES1,
-			(0b01 << PD_SWITCHES1_SPECREV_POS) | PD_SWITCHES1_AUTO_CRC | PD_SWITCHES1_TXCC1
+			(0b10 << PD_SWITCHES1_SPECREV_POS) | PD_SWITCHES1_AUTO_CRC | PD_SWITCHES1_TXCC1
 		);
 	} else {
 		// CC2 was highest - use CC2 for PD communication
@@ -100,7 +100,7 @@ int pd_try_attach() {
 		);
 		pd_write_reg(
 			PD_REG_SWITCHES1,
-			(0b01 << PD_SWITCHES1_SPECREV_POS) | PD_SWITCHES1_AUTO_CRC | PD_SWITCHES1_TXCC2
+			(0b10 << PD_SWITCHES1_SPECREV_POS) | PD_SWITCHES1_AUTO_CRC | PD_SWITCHES1_TXCC2
 		);
 	}
 
@@ -131,18 +131,27 @@ int pd_poll_rxfifo(struct pd_message *message) {
 	message->header = header;
 
 	uint8_t extended = (header >> 15) & 0b1;
-	if (extended == 1) {
-		// TODO: Read valid extended messages
-		pd_write_reg(PD_REG_CONTROL1, pd_read_reg(PD_REG_CONTROL1) | (1 << 2));
-		return 0;
-	}
+	if (extended == 0) {
+		struct pd_message_standard *payload = &message->payload.standard;
 
-	uint8_t number_of_data_objects = (header >> 12) & 0b111;
-	if (number_of_data_objects != 0) {
-		pd_read_fifo(
-			(uint8_t *) &message->payload.standard.data_objects,
-			number_of_data_objects * sizeof(message->payload.standard.data_objects[0])
-		);
+		uint8_t number_of_data_objects = (header >> 12) & 0b111;
+		if (number_of_data_objects != 0) {
+			pd_read_fifo(
+				(uint8_t *) &payload->data_objects,
+				number_of_data_objects * sizeof(payload->data_objects[0])
+			);
+		}
+	} else {
+		struct pd_message_extended *payload = &message->payload.extended;
+
+		uint16_t extended_header;
+		pd_read_fifo((uint8_t *) &extended_header, sizeof(extended_header));
+		payload->extended_header = extended_header;
+
+		uint8_t data_size = extended_header & 0x1FF;
+		if (data_size != 0) {
+			pd_read_fifo(payload->data, data_size);
+		}
 	}
 
 	pd_read_fifo((uint8_t *) &message->crc, sizeof(message->crc));
@@ -178,6 +187,47 @@ void pd_tx_standard(uint16_t header, struct pd_message_standard *payload) {
 		data[count++] = (data_object >> 8) & 0xFF;
 		data[count++] = (data_object >> 16) & 0xFF;
 		data[count++] = (data_object >> 24) & 0xFF;
+	}
+
+	// Message trailer
+	data[count++] = PD_TXFIFO_TOK_JAM_CRC;
+	data[count++] = PD_TXFIFO_TOK_EOP;
+	data[count++] = PD_TXFIFO_TOK_TXOFF;
+
+	// Write to FIFO and start TX
+	pd_write_fifo(data, count);
+	pd_write_reg(PD_REG_CONTROL0, PD_CONTROL0_TX_START);
+}
+
+void pd_tx_extended(uint16_t header, struct pd_message_extended *payload) {
+	uint8_t data[48];
+	size_t count = 0;
+
+	uint8_t data_size = payload->extended_header & 0x1FF;
+	// Total message length is 16-bit header (2 bytes) + 16-bit extended header
+	// (2 bytes) + data size
+	uint8_t message_length = 4 + data_size;
+
+	// SOP header
+	data[count++] = PD_TXFIFO_TOK_SOP1;
+	data[count++] = PD_TXFIFO_TOK_SOP1;
+	data[count++] = PD_TXFIFO_TOK_SOP1;
+	data[count++] = PD_TXFIFO_TOK_SOP2;
+
+	// PACKSYM for message bytes
+	data[count++] = PD_TXFIFO_TOK_PACKSYM(message_length);
+
+	// Message header
+	data[count++] = header & 0xFF;
+	data[count++] = (header >> 4) & 0xFF;
+
+	// Extended header
+	data[count++] = payload->extended_header & 0xFF;
+	data[count++] = (payload->extended_header >> 4) & 0xFF;
+
+	// Data
+	for (int i = 0; i < data_size; ++i) {
+		data[count++] = payload->data[i];
 	}
 
 	// Message trailer
