@@ -4,6 +4,10 @@ Processor looks like a [GD32F1x0](https://www.gigadevice.com/microcontroller/gd3
 	- `REV_ID = 0x1303`
 	- `DEV_ID = 0x410`
 - IRQ 37 for USB interrupts matches table in user manual
+- [whitequark's teardown](https://twitter.com/whitequark/status/1336336420663783426)
+shows it's a GD32F150G8
+	- 64KB flash
+	- 8KB SRAM
 
 PD Controller looks like a [FUSB302](https://www.onsemi.com/products/interfaces/usb-type-c/fusb302)
 or clone
