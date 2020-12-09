@@ -107,6 +107,8 @@ int main() {
 	pd_setup();
 	systick_setup();
 
+	led_set_rgb(0b001);
+
 	delay(1000);
 	log_setup();
 	no_bootloader = 1;
@@ -147,11 +149,13 @@ int main() {
 	if (status1 == 0) {
 		log_write("txcc2");
 		pd_write_reg(2, 0xb);
-		pd_write_reg(3, 0x42);
+		//pd_write_reg(3, 0x42);
+		pd_write_reg(3, 0x22 | (1 << 2));
 	} else {
 		log_write("txcc1");
 		pd_write_reg(2, 7);
-		pd_write_reg(3, 0x41);
+		//pd_write_reg(3, 0x41);
+		pd_write_reg(3, 0x21 | (1 << 2));
 	}
 
 	pd_write_reg(0xb, 0xf);
@@ -161,7 +165,7 @@ int main() {
 
 	log_write("Init complete");
 
-	delay(100);
+	//delay(100);
 
 	//uint8_t get_source_cap[] = {
 	//	0x12, 0x12, 0x12, 0x13, // SOP
@@ -181,8 +185,52 @@ int main() {
 
 	led_set_rgb(0b010);
 
+	int pdo_to_use = -1;
+
 	int led = 0b010;
 	while (1) {
+		if (pdo_to_use >= 0) {
+			log_printf("sending request with %d object position", pdo_to_use);
+			uint8_t request[] = {
+				0x12, 0x12, 0x12, 0x13, // SOP
+				0x86, // PACKSYM (?)
+				// Message header
+				0b01000010,
+				0b00010100,
+				// Data object
+				0b00110010,
+				0b01010000,
+				0b00000000,
+				0b00010000,
+				0xFF, // JAM_CRC
+				0x14, // EOP
+				//0xa1,
+				//0x12, 0x12, 0x12, 0x13,
+				//0b00000010,
+				//0b01010010,
+				//0xFF,
+				//0x14,
+				//0xFE // TXOFF
+				0xA1
+			};
+
+			//for (int i = 0; i < sizeof(request); ++i) {
+			//	log_printf("%02x", request[i]);
+			//}
+
+			//if (status1 == 0) {
+			//	pd_write_reg(3, 0x46);
+			//} else {
+			//	pd_write_reg(3, 0x45);
+			//}
+			//pd_write_reg(0xc, 2);
+			pd_write_fifo(request, sizeof(request));
+			pd_write_reg(0x06, 5);
+			//pd_write_reg(0x06, 1);
+
+			pdo_to_use = -2;
+		}
+
 		uint8_t status1 = pd_read_reg(PD_REG_STATUS1);
 		log_printf("[main] STATUS1 = %02x", status1);
 
@@ -236,6 +284,10 @@ int main() {
 								(((uint32_t) pdo_bytes[2]) << 16) |
 								(((uint32_t) pdo_bytes[1]) << 8) |
 								pdo_bytes[0];
+
+							if (((pdo >> 30) & 0b11) == 0) {
+								pdo_to_use = i;
+							}
 							
 							log_printf("[main] PDO = %08lx", pdo);
 						}
@@ -263,7 +315,7 @@ int main() {
 			}
 		}
 
-		delay(100);
+		//delay(100);
 	}
 
 	while (1);

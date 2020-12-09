@@ -18,6 +18,7 @@ void log_try_program(uint32_t address, uint16_t word) {
 }
 
 void log_write(char *s) {
+	return;
 	int i = 0;
 	char prev = '\0';
 	do {
