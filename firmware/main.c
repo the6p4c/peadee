@@ -112,7 +112,6 @@ void die() {
 	while (1);
 }
 
-
 int main() {
 	interrupts_setup();
 	clock_setup();
@@ -130,78 +129,11 @@ int main() {
 		die();
 	}
 
-	//pd_write_reg(0xc, 2);
-	//pd_write_reg(0xc, 3);
-	//delay(5);
-	//pd_write_reg(0xb, 0xf);
-	//pd_write_reg(2, 7);
-	//delay(2);
-	//int status1 = pd_read_reg(0x40);
-	//pd_write_reg(2, 3);
-	//pd_write_reg(2, 0xb);
-	//delay(2);
-	//int status2 = pd_read_reg(0x40);
-	//pd_write_reg(2, 3);
-
-	//int success = (status1 & 3) | (status2 & 3);
-	//if (success == 0) {
-	//	log_write("failed to find pin to comm on");
-	//	die();
-	//}
-
-	//pd_write_reg(9, 0x40);
-
-	//pd_write_reg(0xc, 3);
-	//delay(5);
-	//pd_write_reg(9, 7);
-	//pd_write_reg(0xe, 0xfc);
-	//pd_write_reg(0xf, 0xff);
-	//pd_write_reg(10, 0xef);
-	//pd_write_reg(6, 0);
-	//pd_write_reg(0xc, 2);
-
-	//status1 &= 3;
-	//status2 &= 3;
-
-	//if (status1 == 0) {
-	//	log_write("txcc2");
-	//	pd_write_reg(2, 0xb);
-	//	//pd_write_reg(3, 0x42);
-	//	pd_write_reg(3, 0x22 | (1 << 2));
-	//} else {
-	//	log_write("txcc1");
-	//	pd_write_reg(2, 7);
-	//	//pd_write_reg(3, 0x41);
-	//	pd_write_reg(3, 0x21 | (1 << 2));
-	//}
-
-	//pd_write_reg(0xb, 0xf);
-	//pd_read_reg(0x3e);
-	//pd_read_reg(0x3f);
-	//pd_read_reg(0x42);
-
 	log_write("Init complete");
-
-	//delay(100);
-
-	//uint8_t get_source_cap[] = {
-	//	0x12, 0x12, 0x12, 0x13, // SOP
-	//	0x82, // PACKSYM (2)
-	//	0b00000000,
-	//	0b01000111,
-	//	0xFF, // JAM_CRC
-	//	0x14, // EOP
-	//	0xA1 // TXON
-	//};
-
-	//pd_write_reg(0xb, 0xf);
-	//pd_write_reg(0x6, 0x40);
-	//pd_write_fifo(get_source_cap, sizeof(get_source_cap));
-	//pd_write_reg(6, 5);
-	//pd_write_reg(0xb, 7);
 
 	led_set_rgb(0b010);
 
+	struct pd_message message;
 	int pdo_to_use = -1;
 
 	int led = 0b010;
@@ -210,7 +142,7 @@ int main() {
 			log_printf("sending request with %d object position", pdo_to_use);
 			uint8_t request[] = {
 				0x12, 0x12, 0x12, 0x13, // SOP
-				0x86, // PACKSYM (?)
+				0x86, // PACKSYM (6)
 				// Message header
 				0b01000010,
 				0b00010100,
@@ -218,122 +150,49 @@ int main() {
 				0b00110010,
 				0b01010000,
 				0b00000000,
-				0b00010000,
+				(pdo_to_use + 1) << 4,
 				0xFF, // JAM_CRC
 				0x14, // EOP
-				//0xa1,
-				//0x12, 0x12, 0x12, 0x13,
-				//0b00000010,
-				//0b01010010,
-				//0xFF,
-				//0x14,
-				//0xFE // TXOFF
-				0xA1
+				0xA1 // TXON
 			};
 
-			//for (int i = 0; i < sizeof(request); ++i) {
-			//	log_printf("%02x", request[i]);
-			//}
-
-			//if (status1 == 0) {
-			//	pd_write_reg(3, 0x46);
-			//} else {
-			//	pd_write_reg(3, 0x45);
-			//}
-			//pd_write_reg(0xc, 2);
 			pd_write_fifo(request, sizeof(request));
 			pd_write_reg(0x06, 5);
-			//pd_write_reg(0x06, 1);
 
 			pdo_to_use = -2;
 		}
 
-		uint8_t status1 = pd_read_reg(PD_REG_STATUS1);
-		//log_printf("[main] STATUS1 = %02x", status1);
+		if (pd_poll_rxfifo(&message)) {
+			led_set_rgb(led);
+			led ^= 0b010;
 
-		if ((status1 & PD_STATUS1_RX_EMPTY) != PD_STATUS1_RX_EMPTY) {
-			log_write("[main] RX FIFO not empty");
+			log_printf("[main] Message header = %04x", message.header);
 
-			pd_read_reg(0x3e);
-			pd_read_reg(0x3f);
-			pd_read_reg(0x40);
-			pd_read_reg(0x41);
-			pd_read_reg(0x42);
+			uint8_t message_type = message.header & 0b1111;
+			uint8_t message_id = (message.header >> 9) & 0b111;
+			uint8_t number_of_data_objects = (message.header >> 12) & 0b111;
+			uint8_t extended = (message.header >> 15) & 0b1;
 
-			uint8_t packet_type;
-			pd_read_fifo(&packet_type, sizeof(packet_type));
+			log_printf(
+				"[main] Message Type = %x, Message ID = %x, Number of Data Objects = %x, Extended = %d",
+				message_type, message_id, number_of_data_objects, extended
+			);
 
-			if ((packet_type & 0b11100000) == 0b11100000) {
-				led_set_rgb(led);
-				led ^= 0b010;
+			if (extended == 0) {
+				struct pd_message_standard *payload = &message.payload.standard;
 
-				log_write("[main] Got SOP");
+				if (number_of_data_objects != 0 && message_type == 0b00001) {
+					for (int i = 0; i < number_of_data_objects; ++i) {
+						uint32_t pdo = payload->data_objects[i];
 
-				uint8_t message_header_bytes[2];
-				pd_read_fifo(message_header_bytes, sizeof(message_header_bytes));
-
-				uint16_t message_header = (((uint16_t) message_header_bytes[1]) << 8) | message_header_bytes[0];
-
-				log_printf("[main] Message header = %04x", message_header);
-
-				uint8_t message_type = message_header & 0b1111;
-				uint8_t message_id = (message_header >> 9) & 0b111;
-				uint8_t number_of_data_objects = (message_header >> 12) & 0b111;
-				uint8_t extended = (message_header >> 15) & 0b1;
-
-				log_printf(
-					"[main] Message Type = %x, Message ID = %x, Number of Data Objects = %x, Extended = %d",
-					message_type, message_id, number_of_data_objects, extended
-				);
-
-				if (extended == 0) {
-					log_write("[main] Standard");
-
-					if (number_of_data_objects != 0 && message_type == 0b00001) {
-						log_write("[main] Source_Capabilities");
-
-						for (int i = 0; i < number_of_data_objects; ++i) {
-							uint8_t pdo_bytes[4];
-							pd_read_fifo(pdo_bytes, sizeof(pdo_bytes));
-
-							uint32_t pdo = 
-								(((uint32_t) pdo_bytes[3]) << 24) |
-								(((uint32_t) pdo_bytes[2]) << 16) |
-								(((uint32_t) pdo_bytes[1]) << 8) |
-								pdo_bytes[0];
-
-							if (((pdo >> 30) & 0b11) == 0) {
-								pdo_to_use = i;
-							}
-							
-							log_printf("[main] PDO = %08lx", pdo);
+						if (((pdo >> 30) & 0b11) == 0) {
+							pdo_to_use = i;
 						}
 					}
-				} else {
-					log_write("[main] Extended!");
-					uint8_t extended_header_bytes[4];
-					pd_read_fifo(extended_header_bytes, sizeof(extended_header_bytes));
-
-					uint32_t extended_header = 
-						(((uint32_t) extended_header_bytes[3]) << 24) |
-						(((uint32_t) extended_header_bytes[2]) << 16) |
-						(((uint32_t) extended_header_bytes[1]) << 8) |
-						extended_header_bytes[0];
-
-					log_printf("[main] Extended header = %08lx", extended_header);
-
-					uint8_t data_size = extended_header & 0b11111111;
-
-					log_printf("[main] Data Size = %x", data_size);
 				}
+			} 
 
-				// Flush RX FIFO
-				pd_write_reg(PD_REG_CONTROL1, pd_read_reg(PD_REG_CONTROL1) | (1 << 2));
-			}
+			pd_write_reg(PD_REG_CONTROL1, pd_read_reg(PD_REG_CONTROL1) | (1 << 2));
 		}
-
-		//delay(100);
 	}
-
-	while (1);
 }

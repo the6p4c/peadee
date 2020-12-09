@@ -43,8 +43,25 @@
 #define PD_STATUS0_BC_LVL_MASK (0b11 << 0)
 #define PD_STATUS1_RX_EMPTY (1 << 5)
 
+#define PD_RXFIFO_TOK_SOP_MASK (0b11100000)
+#define PD_RXFIFO_TOK_SOP (0b11100000)
+
+struct pd_message_standard {
+	uint32_t data_objects[7];
+};
+
+struct pd_message {
+	uint16_t header;
+	union {
+		struct pd_message_standard standard;
+	} payload;
+	uint32_t crc;
+};
+
 void pd_setup();
 int pd_try_attach();
+
+int pd_poll_rxfifo(struct pd_message *message);
 
 void pd_write_reg(uint8_t reg, uint8_t value);
 void pd_write_fifo(uint8_t *data, size_t count);

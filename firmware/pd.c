@@ -110,6 +110,46 @@ int pd_try_attach() {
 	return 1;
 }
 
+int pd_poll_rxfifo(struct pd_message *message) {
+	uint8_t status1 = pd_read_reg(PD_REG_STATUS1);
+	if ((status1 & PD_STATUS1_RX_EMPTY) == PD_STATUS1_RX_EMPTY) {
+		return 0;
+	}
+
+	uint8_t sop_token;
+	pd_read_fifo(&sop_token, sizeof(sop_token));
+
+	if ((sop_token & PD_RXFIFO_TOK_SOP_MASK) != PD_RXFIFO_TOK_SOP) {
+		// TODO: We probably need to flush the RX FIFO here, since we don't
+		// know how to deal with the packet that's in there.
+		pd_write_reg(PD_REG_CONTROL1, pd_read_reg(PD_REG_CONTROL1) | (1 << 2));
+		return 0;
+	}
+
+	uint16_t header;
+	pd_read_fifo((uint8_t *) &header, sizeof(header));
+	message->header = header;
+
+	uint8_t extended = (header >> 15) & 0b1;
+	if (extended == 1) {
+		// TODO: Read valid extended messages
+		pd_write_reg(PD_REG_CONTROL1, pd_read_reg(PD_REG_CONTROL1) | (1 << 2));
+		return 0;
+	}
+
+	uint8_t number_of_data_objects = (header >> 12) & 0b111;
+	if (number_of_data_objects != 0) {
+		pd_read_fifo(
+			(uint8_t *) &message->payload.standard.data_objects,
+			number_of_data_objects * sizeof(message->payload.standard.data_objects[0])
+		);
+	}
+
+	pd_read_fifo((uint8_t *) &message->crc, sizeof(message->crc));
+
+	return 1;
+}
+
 void pd_write_reg(uint8_t reg, uint8_t value) {
 	// See FUSB302 datasheet, Figure 13 "I2C Write Example"
 
